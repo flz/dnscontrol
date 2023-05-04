@@ -14,7 +14,6 @@ import (
 	"github.com/StackExchange/dnscontrol/v3/pkg/credsfile"
 	"github.com/StackExchange/dnscontrol/v3/pkg/diff2"
 	"github.com/StackExchange/dnscontrol/v3/pkg/nameservers"
-	"github.com/StackExchange/dnscontrol/v3/pkg/normalize"
 	"github.com/StackExchange/dnscontrol/v3/pkg/zonerecs"
 	"github.com/StackExchange/dnscontrol/v3/providers"
 	_ "github.com/StackExchange/dnscontrol/v3/providers/_all"
@@ -112,7 +111,7 @@ func getDomainConfigWithNameservers(t *testing.T, prv providers.DNSServiceProvid
 	dc := &models.DomainConfig{
 		Name: domainName,
 	}
-	normalize.UpdateNameSplitHorizon(dc)
+	dc.UpdateSplitHorizonNames()
 
 	// fix up nameservers
 	ns, err := prv.GetNameservers(domainName)
@@ -320,6 +319,14 @@ func runTests(t *testing.T, prv providers.DNSServiceProvider, domainName string,
 
 	}
 
+	// Issue https://github.com/StackExchange/dnscontrol/issues/491
+	t.Run("No trailing dot in nameserver", func(t *testing.T) {
+		for _, nameserver := range dc.Nameservers {
+			if strings.HasSuffix(nameserver.Name, ".") {
+				t.Errorf("Provider returned nameserver with trailing dot: %s (See issue https://github.com/StackExchange/dnscontrol/issues/491, TL;DR: use models.ToNameserversStripTD in GetNameservers)", nameserver)
+			}
+		}
+	})
 }
 
 func TestDualProviders(t *testing.T) {
@@ -1540,6 +1547,19 @@ func makeTests(t *testing.T) []*TestGroup {
 			requires(providers.CanUseRoute53Alias),
 			tc("loop should fail",
 				r53alias("test-islandora", "CNAME", "test-islandora.**current-domain**"),
+			),
+		),
+
+		// Bug https://github.com/StackExchange/dnscontrol/issues/2285
+		testgroup("R53_alias pre-existing",
+			requires(providers.CanUseRoute53Alias),
+			tc("Create some records",
+				r53alias("dev-system", "CNAME", "dev-system18.**current-domain**"),
+				cname("dev-system18", "ec2-54-91-33-155.compute-1.amazonaws.com."),
+			),
+			tc("Add a new record - ignoring foo",
+				a("bar", "1.2.3.4"),
+				ignoreName("dev-system*"),
 			),
 		),
 
